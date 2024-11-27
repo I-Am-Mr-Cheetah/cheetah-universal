@@ -1,0 +1,9 @@
+[submodule "third-party/whisper.cpp"]
+	path = third-party/whisper.cpp
+	url = github-drigax:ggerganov/whisper.cpp.git
+[submodule "third-party/SDL"]
+	path = third-party/SDL
+	url = github-drigax:libsdl-org/SDL.git
+[submodule "third-party/openai-cpp"]
+	path = third-party/openai-cpp
+	url = github-drigax:olrea/openai-cpp.git
