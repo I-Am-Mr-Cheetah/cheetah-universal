@@ -1,3 +1,5 @@
+#pragma once
+
 #include <LibWhisper.h>
 
 #include <cassert>
@@ -12,6 +14,7 @@
 
 #include <CaptureDevice.h>
 #include <stream.h>
+
 
 struct Segment {
     std::string text;
@@ -34,6 +37,9 @@ public:
     
     int callback( std::string text, int64_t t0, int64_t t1, WhisperStream *ctx);
 
+    OrderedSegments& getSegments(){
+        return segments;
+    }
 protected:
     std::jthread waiter;
     OrderedSegments segments;

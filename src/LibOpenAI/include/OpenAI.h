@@ -19,14 +19,12 @@ struct ErrorResult {
     std::string message;
 };
 
-template <typename T>
-struct OpenAI {
-    std::optional<std::string>      object;
-    std::optional<std::string>      model;
-    std::optional<std::vector<T>>   choices;
-    std::optional<UsageResult>      usage;
-    std::optional<std::vector<T>>   data;
-    std::optional<ErrorResult>      error;
+namespace CodingKeys {
+enum Tokens {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+};
 };
 
 struct Payload {};
@@ -48,19 +46,23 @@ struct UsageResult : public Payload {
     uint32_t completionTokens;
     uint32_t totalTokens;
 
-    enum CodingKeys{
-        promptTokens,
-        completionTokens,
-        totalTokens,
-    }; 
-    
-    const char * to_string(CodingKeys key) {
+    const char * to_string(CodingKeys::Tokens key) {
         switch(key){
-            case CodingKeys::promptTokens:      return "prompt_tokens";
-            case CodingKeys::completionTokens:  return "completion_tokens";
-            case CodingKeys::totalTokens:       return "total_tokens";
-            default:                       
-                throw std::invalid_argument("Invalid Coding Key");
+        case CodingKeys::Tokens::promptTokens:      return "prompt_tokens";
+        case CodingKeys::Tokens::completionTokens:  return "completion_tokens";
+        case CodingKeys::Tokens::totalTokens:       return "total_tokens";
+        default:
+            throw std::invalid_argument("Invalid Coding Key");
         }
     }
+};
+
+template <typename T>
+struct OpenAI {
+    std::optional<std::string>      object;
+    std::optional<std::string>      model;
+    std::optional<std::vector<T>>   choices;
+    std::optional<UsageResult>      usage;
+    std::optional<std::vector<T>>   data;
+    std::optional<ErrorResult>      error;
 };

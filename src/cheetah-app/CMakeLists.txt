@@ -29,6 +29,10 @@ qt_add_qml_module(app-cheetah-app
     DEPENDENCIES QtQuick
     SOURCES include/ConversationAnalyzer.h
     SOURCES include/PromptGenerator.h
+    SOURCES include/ModelInput.h
+    SOURCES include/ModelDownloader.h
+    SOURCES include/PromptChain.h
+    SOURCES include/BrowserExtension.h
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

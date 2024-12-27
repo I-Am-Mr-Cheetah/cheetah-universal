@@ -2,6 +2,7 @@
 
 #include <ModelDownloader.h>
 
+
 ModelDownloader::ModelDownloader (std::string modelName) : modelName(modelName) {
     // String, configuration: URLSessionConfiguration = .default
     //session = URLSession(configuration: configuration)
@@ -10,6 +11,8 @@ ModelDownloader::ModelDownloader (std::string modelName) : modelName(modelName) 
 
     resume();
 }
+
+ModelDownloader::~ModelDownloader(){}
 
 void ModelDownloader::onFileDownloaded(QNetworkReply* pReply){
     m_DownloadedData = pReply->readAll();

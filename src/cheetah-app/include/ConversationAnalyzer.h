@@ -1,44 +1,22 @@
 #pragma once
 
+#include <BrowserExtension.h>
 #include <LibWhisper.h>
+#include <ModelInput.h>
+#include <OpenAIExecutor.h>
+#include <PromptGenerator.h>
+#include <PromptChain.h>
+#include <WhisperStream.h>
 
 #include <cctype>
 #include <cstdarg>
 #include <exception>
 #include <functional>
+#include <future>
 #include <regex>
-#include <unordered_map>
+#include <optional>
 #include <string>
-
-#include <PromptGenerator.h>
-
-enum ContextKey {
-    transcript,
-    question,
-    answerInCode,
-    answer,
-    previousAnswer,
-    highlightedAnswer,
-    codeAnswer,
-    browserCode,
-    browserLogs,
-};
-
-const char* to_string(ContextKey key) {
-    switch (key) {
-        case ContextKey::transcript: return "transcript";
-        case ContextKey::question: return "question";
-        case ContextKey::answerInCode: return "answerInCode";
-        case ContextKey::answer: return "answer";
-        case ContextKey::previousAnswer: return "previousAnswer";
-        case ContextKey::highlightedAnswer: return "highlightedAnswer";
-        case ContextKey::codeAnswer: return "codeAnswer";
-        case ContextKey::browserCode: return "browserCode";
-        case ContextKey::browserLogs: return "browserLogs";
-    }
-}
-
-typedef std::unordered_map<ContextKey, std::string> AnalysisContext;
+#include <unordered_map>
 
 bool doAnswerInCode (AnalysisContext context) {
     if (context.find(ContextKey::answerInCode) != context.end()) {
@@ -68,8 +46,8 @@ std::function<void(AnalysisContext& context, ContextKey key, std::string& str)> 
     };
 }
 
-const std::regex finalAnswerRegex("/Final answer:\n(?<answer>[-•].+$)/", std::regex_constants::ECMAScript);
-const std::regex answerOnlyRegex("/(?<answer>[-•].+$)/", std::regex_constants::ECMAScript);
+const std::regex finalAnswerRegex("Final answer:\n", std::regex_constants::ECMAScript);
+const std::regex answerOnlyRegex("\n\n", std::regex_constants::ECMAScript);
 
 class AnalysisError : public std::exception {
 public:
@@ -83,50 +61,80 @@ public:
 };
 
 class AnalysisPromptGenerator : public PromptGenerator {
+public:
+    AnalysisPromptGenerator() : PromptGenerator(){}
+    AnalysisPromptGenerator(const PromptGenerator& other) : PromptGenerator(other){}
+    AnalysisPromptGenerator(const AnalysisPromptGenerator& other) : PromptGenerator(other){}
+    AnalysisPromptGenerator(const AnalysisPromptGenerator&& other) : PromptGenerator(other){}
+
+
     virtual std::optional<ModelInput> extractQuestion(AnalysisContext context) {
-        if (context.hasKey(ContextKey::transcript)) {
+        if (!context.contains(ContextKey::transcript)) {
             return PromptGenerator::extractQuestion(context[ContextKey::transcript]);
         } else {
-            throw MissingRequiredContextKeyAnalysisError(to_string(ContextKey::transcript));
+            throw MissingRequiredContextKeyAnalysisError(ContextKey::transcript);
         }
     }
 
     virtual std::optional<ModelInput> answerQuestion(AnalysisContext context) {
-        if (!context.hasKey(ContextKey::question)) {
-            throw MissingRequiredContextKeyAnalysisError(to_string(ContextKey::question));
+        if (!context.contains(ContextKey::question)) {
+            throw MissingRequiredContextKeyAnalysisError(ContextKey::question);
         }
         auto question = context[ContextKey::question];
-        if (answerInCode(context) {
-            return nullptr;
-        } else if (context.hasKey(ContextKey::previousAnswer) && !context[ContextKey::previousAnswer].empty()) {
-            return answerQuestion(question, context[ContextKey::previousAnswer]);
-        } else if (context.hasKey(ContextKey::highlightedAnswer) && !context[ContextKey::highlightedAnswer].empty()) {
-            return answerQuestion(question, context[ContextKey::highlightedAnswer]);
+        if (context.contains(ContextKey::answerInCode)) {
+            return {};
+        } else if (context.contains(ContextKey::previousAnswer) && !context[ContextKey::previousAnswer].empty()) {
+            return answerPreviousQuestion(question, context[ContextKey::previousAnswer]);
+        } else if (context.contains(ContextKey::highlightedAnswer) && !context[ContextKey::highlightedAnswer].empty()) {
+            return answerHighlightedQuestion(question, context[ContextKey::highlightedAnswer]);
         } else {
-            return answerQuestion(question);
+            return answerPromptQuestion(question);
         }
     }
 
     virtual std::optional<ModelInput> writeCode(AnalysisContext context) {
-        if (answerInCode(context) && context.hasKey(ContextKey::question)) {
+        if (context.contains(ContextKey::answerInCode) && context.contains(ContextKey::question)) {
             auto question = context[ContextKey::question];
-            return writeCode(task: question);
+            return PromptGenerator::writeCode(question);
         } else {
-            return nullptr;
+            return {};
         }
     }
 
     virtual std::optional<ModelInput> analyzeBrowserCode(AnalysisContext context) {
-        if (context.hasKey(ContextKey::browserCode) && !context[ContextKey::browserCode].empty()
-            && context.hasKey(ContextKey::browserLogs) && !context[ContextKey::browserLogs].empty()
-            && context.hasKey(ContextKey::question) && !context[ContextKey::question].empty()) {
+        if (context.contains(ContextKey::browserCode) && !context[ContextKey::browserCode].empty()
+            && context.contains(ContextKey::browserLogs) && !context[ContextKey::browserLogs].empty()
+            && context.contains(ContextKey::question) && !context[ContextKey::question].empty()) {
             auto code = context[ContextKey::browserCode];
             auto logs = context[ContextKey::browserLogs];
             auto task = context[ContextKey::question];
-            return analyzeBrowserCode(code, logs, task);
+            return PromptGenerator::analyzeBrowserCode(code, logs, task);
         } else {
-            return nullptr;
+            return {};
         }
+    }
+};
+
+namespace ContextHelpers{
+    void extractQuestionUpdateContext (std::string output, AnalysisContext& context) {
+        auto stringItr = output.begin();
+        auto stringItrEnd = output.end();
+        const std::string extractQuestionString("Extracted question: ");
+        output.find(extractQuestionString);
+        //const std::regex extractQuestionRegex ("/Extracted question: (?<question>[^\n]+)(?:\nAnswer in code: (?<answerInCode>Yes|No))?/.ignoresCase()", std::regex_constants::ECMAScript | std::regex_constants::icase);
+        //TODO: implement string parsing
+        //auto regexItr = std::sregex_iterator(output.begin(), output.end(), extractQuestionRegex);
+        //auto regexEndItr = std::sregex_iterator();
+        //if (regexItr != regexEndItr){
+        //    auto match = *regexItr;
+
+        //}
+        //if let match = output.firstMatch(of: regex) {
+        //    context[.question] = String(match.question)
+        //    if let answerInCode = match.answerInCode {
+        //        context[.answerInCode] = String(answerInCode)
+        //    }
+        //}
     }
 }
 
@@ -138,17 +146,23 @@ public:
 
     ConversationAnalyzer(WhisperStream stream, 
                         PromptGenerator generator,
-                        OpenAIExecutor executor) 
-                        :   stream(stream), 
-                            generator(generator),
-                            executor(executor) {}
+                        OpenAIExecutor executor)
+                        :   stream(std::move(stream)),
+                            generator(std::move(generator)),
+                            executor(std::move(executor)) {}
+
+    ConversationAnalyzer(ConversationAnalyzer& other)
+        :   stream(std::move(other.stream)),
+            generator(other.generator),
+            executor(other.executor) {}
 
     AnalysisContext context;
 
-    std::future<void> answer(bool refine = false, std::iterator<std::string> selection_begin = nullptr, std::iterator<std::string> selection_end = nullptr) {
+    std::future<void> answer(std::string::const_iterator selection_begin, std::string::const_iterator selection_end, bool refine = false) {
+        /*
         PromptChain chain (
-            generator.extractQuestion,
-            extractQuestion,
+            std::bind(AnalysisPromptGenerator::extractQuestion, generator),
+            ContextHelpers::extractQuestionUpdateContext,
             250,
             {
                 PromptChain(generator.answerQuestion,
@@ -173,25 +187,36 @@ public:
         }
 
         context = try await executor.execute(chain: chain, context: newContext)
+        */
+        return std::future<void>();
     }
 
-    func analyzeCode(extensionState: BrowserExtensionState) async throws {
-        let newContext: AnalysisContext = [
-            .transcript: String(stream.segments.text),
-            .browserCode: extensionState.codeDescription,
-            .browserLogs: extensionState.logsDescription
-        ]
-
-        let chain = PromptChain(
-            generator: generator.extractQuestion,
-            updateContext: extractQuestion,
-            maxTokens: 250,
-            children: [
-                Prompt(generator: generator.analyzeBrowserCode,
-                       updateContext: ContextKey.answer.set,
-                       maxTokens: 500)
-            ])
-
-        context = try await executor.execute(chain: chain, context: newContext)
+    void analyzeCode(BrowserExtensionState extensionState) {
+        /*
+        AnalysisContext newContext(
+            [](OrderedSegments& segments) -> std::string {
+                std::string result;
+                for(auto val : segments){
+                    result += val.text + "\n";
+                };
+                return result;
+            }(stream.getSegments()),
+            extensionState.getCodeDescription(),
+            extensionState.getLogsDescription()
+        );
+        */
+        /*
+        auto chain = PromptChain(
+            generator.extractQuestion,
+            extractQuestion,
+            250,
+            {
+                Prompt(generator.analyzeBrowserCode,
+                       ContextKey.answer.set,
+                       500)
+            }
+        );
+        */
+        //context = try await executor.execute(chain: chain, context: newContext)
     }
-}
+};

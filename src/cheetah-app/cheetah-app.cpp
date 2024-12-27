@@ -28,7 +28,7 @@ struct AppViewModel{
     CaptureDevice& selectedDevice;
 
     std::string whisperModel = defaultWhisperModel;
-    ModelDownloader::State modelDownloadState = ModelDownloader::State::Idle; 
+    ModelDownloader::State modelDownloadState = ModelDownloader::State::Pending;
 
     ConversationAnalyzer conversationAnalyzer;
     AnswerRequest answerRequest = AnswerRequest::None;
@@ -51,7 +51,7 @@ struct CheetahApp
     // BrowserExtensionState extensionState;
 
 
-}
+};
 
 int main(int argc, char *argv[])
 {

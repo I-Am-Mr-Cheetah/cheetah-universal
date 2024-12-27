@@ -8,42 +8,10 @@
 #include <vector>
 
 #include <OpenAIHelper.h>
+#include <PromptGenerator.h>
+#include <PromptChain.h>
+#include <ConversationAnalyzer.h>
 #include <QtLogging>
-
-/*
-enum ModelInput 
-{
-    case prompt(String, model: OpenAIModelType.GPT3 = .davinci)
-    case messages([ChatMessage], model: OpenAIModelType.Chat = .gpt4)
-    case chatPrompt(system: String, user: String, model: OpenAIModelType.Chat = .gpt4)
-}
-*/
-
-struct ModelInput{
-    std::string systemMessage;
-    std::string prompt;
-    std::string model;
-    std::string user;
-};
-
-class PromptChain {
-    // <Context>
-    std::function<std::string(ModelInput&)> generator;
-    std::function<void(AnalysisContext& context, ContextKey key, std::string& str)> updateContext;
-    uint32_t maxTokens;
-    std::shared_ptr<std::vector<PromptChain>> children;
-    
-    PromptChain(std::function<std::string(ModelInput)> generator,
-        std::function<void(AnalysisContext& context, ContextKey key, std::string& str)> updateContext,
-        uint32_t maxTokens = 16,
-        std::shared_ptr<std::vector<PromptChain>> children = nullptr
-    ) {
-        this->generator = generator;
-        this->updateContext = updateContext;
-        this->maxTokens = maxTokens;
-        this->children = children;
-    }
-};
 
 typedef PromptChain Prompt;
 
@@ -82,85 +50,87 @@ public:
     OpenAIExecutor(std::string& authToken, bool useGPT4) 
         : openAI(OpenAIHelper(authToken)), useGPT4(useGPT4) {};
     
-    void log(std::string& prompt) {
+    void logPrompt(std::string& prompt) {
         // TODO: add an analog for Swift's UserDefaults
         //if (UserDefaults.standard.logPrompts) {
-            qInfo("Prompt:\n", prompt);
+            qInfo("Prompt:\n%s", prompt.c_str());
         //}
     }
     
-    void log(std::string& completion) {
+    void logCompletion(std::string& completion) {
         // TODO: add an analog for Swift's UserDefaults
         //if UserDefaults.standard.logCompletions {
-            qInfo("Completion:\n", completion);
+            qInfo("Completion:\n%s", completion.c_str());
         //}
     }
     
-    std::optional<std::string> execute(std::string& prompt, OpenAIModelType& model, uint32_t maxTokens = 100) {
-        log(prompt: prompt)
+    std::optional<std::string> executePrompt(std::string& prompt, OpenAIModelType& model, uint32_t maxTokens = 100) {
+        logPrompt(prompt);
         auto result = openAI.sendCompletion(prompt, model, maxTokens);
-        auto text = result.get().choices.hasValue() ? result.get()..first?.text;
-        if (text) {
-            log(text);
-        } else if (error.hasValue()) {
-            throw error.value();
-        }
-        return text
+        auto text = result.get().choices.value()[0].text;
+
+        logCompletion(text);
+        return text;
     }
     
-    func execute(messages: [ChatMessage], model: OpenAIModelType, maxTokens: Int = 100) async throws -> String? {
-        log(prompt: messages.debugDescription)
-        let result = try await openAI.sendChat(with: messages, model: model, maxTokens: maxTokens)
-        let content = result.choices?.first?.message.content
-        if let content = content {
-            log(completion: content)
-        } else if let error = result.error {
-            throw error
+    std::optional<std::string> executeMessages(std::vector<ChatMessage>& messages, OpenAIModelType& model, uint32_t maxTokens = 100) {
+        for (auto message : messages){
+            logPrompt(message.content);
         }
-        return content
+        auto result = openAI.sendChat(messages, model, nullptr, 1.0, 0.0, 1, nullptr, 100);
+        auto content = result.get().choices.value()[0].message.content;
+        logCompletion(content);
+
+        return content;
     }
     
-    func adjustModel(_ model: OpenAIModelType.Chat) -> OpenAIModelType.Chat {
+    /*
+    OpenAIModelType adjustModel(OpenAIModelType.Chat) -> OpenAIModelType.Chat {
         if !useGPT4 && model == .gpt4 {
             return .chatgpt
         } else {
             return model
         }
     }
-    
-    func execute<K>(chain: PromptChain<[K: String]>, context initialContext: [K: String]) async throws -> [K: String] {
-        var context = initialContext
+    */
+      
+    std::vector<std::string> execute(PromptChain chain, AnalysisContext& initialContext) {
+        auto context = initialContext;
         
-        guard let input = try chain.generator(context) else {
-            return context
+        auto input = chain.generator(context[ContextKey::question]);
+
+        std::optional<std::string> output;
+
+        switch (input.type) {
+        case ModelInputType::prompt:
+            output = executePrompt(context[ContextKey::question], input.model, chain.maxTokens);
+            break;
+        case ModelInputType::messages:
+            {
+                std::vector<ChatMessage> messages;
+                messages.emplace_back(ChatRole::Role::user, context[ContextKey::transcript]);
+
+                output = executeMessages(messages, input.model, chain.maxTokens);
+            }
+            break;
+        case ModelInputType::chatPrompt:
+            {
+                std::vector<ChatMessage> messages = {
+                    ChatMessage(ChatRole::Role::system, PromptGenerator::systemMessage()),
+                    ChatMessage(ChatRole::Role::user, context[ContextKey::question]),
+                };
+                output = executeMessages(messages, input.model, chain.maxTokens);
+            }
+            break;
         }
         
-        let output: String?
-        switch input {
-        case .prompt(let prompt, let model):
-            output = try await execute(prompt: prompt, model: .gpt3(model), maxTokens: chain.maxTokens)
-            
-        case .messages(let messages, let model):
-            output = try await execute(messages: messages, model: .chat(adjustModel(model)), maxTokens: chain.maxTokens)
-            
-        case .chatPrompt(system: let systemMessage, user: let userMessage, model: let model):
-            let messages = [
-                ChatMessage(role: .system, content: systemMessage),
-                ChatMessage(role: .user, content: userMessage),
-            ]
-            output = try await execute(messages: messages, model: .chat(adjustModel(model)), maxTokens: chain.maxTokens)
-        }
+        //chain.updateContext(output, &context);
         
-        guard let output = output else {
-            return context
-        }
-        
-        try chain.updateContext(String(output.trimmingCharacters(in: .whitespacesAndNewlines)), &context)
-        
-        let childContext = context
-        
-        if let children = chain.children {
-            let childOutputs = try await withThrowingTaskGroup(
+        auto childContext = context;
+
+        if (chain.children.get() != nullptr) {
+            /*
+            auto childOutputs = try await withThrowingTaskGroup(
                 of: [K: String?].self,
                 returning: [K: String?].self
             ) { group in
@@ -180,8 +150,9 @@ public:
             for (key, output) in childOutputs {
                 context[key] = output
             }
+            */
         }
-        
-        return context
+
+        return {output.value()};
     }
-}
+};

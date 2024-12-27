@@ -58,10 +58,10 @@ public:
     ///   - maxTokens: The limit character for the returned response, defaults to 16 as per the API
     ///   - completionHandler: Returns an OpenAI Data Model
     void sendCompletion(std::string prompt,
+                        std::function<void(std::optional<OpenAI<TextResult>>, std::optional<OpenAIError>)> completionHandler,
                         OpenAIModelType modelType = OpenAIModelType::gpt3_davinci,
                         uint32_t maxTokens = 16, 
-                        double temperature = 1.0,
-                        std::function<void(std::optional<OpenAI<TextResult>>, std::optional<OpenAIError>)> completionHandler) {
+                        double temperature = 1.0) {
         /*
         auto endpoint = Endpoint.completions
         let body = Command(prompt: prompt, model: model.modelName, maxTokens: maxTokens, temperature: temperature)
@@ -89,10 +89,10 @@ public:
     ///   - model: The Model to use, the only support model is `text-davinci-edit-001`
     ///   - input: The Input For Example "My nam is Adam"
     ///   - completionHandler: Returns an OpenAI Data Model
-    void sendEdits( std::string instruction, 
+    void sendEdits( std::string instruction,
+                    std::function<void(std::optional<OpenAI<TextResult>>, std::optional<OpenAIError>)> completionHandler,
                     OpenAIModelType model = OpenAIModelType::feature_davinci,
-                    std::string input = "", 
-                    std::function<void(std::optional<OpenAI<TextResult>>, std::optional<OpenAIError>)> completionHandler) {
+                    std::string input = "") {
         /*
         let endpoint = Endpoint.edits
         let body = Instruction(instruction: instruction, model: model.modelName, input: input)
@@ -129,17 +129,17 @@ public:
     ///   - logitBias: Modify the likelihood of specified tokens appearing in the completion. Maps tokens (specified by their token ID in the OpenAI Tokenizer—not English words) to an associated bias value from -100 to 100. Values between -1 and 1 should decrease or increase likelihood of selection; values like -100 or 100 should result in a ban or exclusive selection of the relevant token.
     ///   - completionHandler: Returns an OpenAI Data Model
     void sendChat(  std::vector<ChatMessage> messages,
+                    std::function<void(std::optional<OpenAI<MessageResult>>, std::optional<OpenAIError>)> completionHandler,
                     OpenAIModelType model = OpenAIModelType::chat_chatgpt,
                     std::optional<std::string> user = nullptr,
                     std::optional<double> temperature = 1,
                     std::optional<double> topProbabilityMass = 0,
                     std::optional<uint32_t> choices = 1,
                     std::optional<std::vector<std::string>*> stop = nullptr,
-                    std::optional<uint32_t> maxTokens = 0,
+                    std::optional<uint32_t> maxTokens = 100,
                     std::optional<double> presencePenalty = 0,
                     std::optional<double> frequencyPenalty = 0,
-                    std::optional<std::unordered_map<int, double>*> logitBias = nullptr,
-                    std::function<void(std::optional<OpenAI<MessageResult>>, std::optional<OpenAIError>)> completionHandler){
+                    std::optional<std::unordered_map<int, double>*> logitBias = nullptr){
         /*
         let endpoint = Endpoint.chat
         let body = ChatConversation(user: user,
@@ -182,11 +182,11 @@ public:
     ///   - size: The size of the image, defaults to 1024x1024. There are two other options: 512x512 and 256x256
     ///   - user: An optional unique identifier representing your end-user, which can help OpenAI to monitor and detect abuse.
     ///   - completionHandler: Returns an OpenAI Data Model
-    void sendImages( std::string prompt, 
-                            uint32_t numImages = 1,
-                            ImageSize size, 
-                            std::optional<std::string> user = nullptr,
-                            std::function<void(std::optional<OpenAI<UrlResult>>, std::optional<OpenAIError>)> completionHandler) {
+    void sendImages( std::string prompt,
+                    std::function<void(std::optional<OpenAI<UrlResult>>, std::optional<OpenAIError>)> completionHandler,
+                    uint32_t numImages = 1,
+                    ImageSize::Size size = ImageSize::size256,
+                    std::optional<std::string> user = nullptr){
         /*
         let endpoint = Endpoint.images
         let body = ImageGeneration(prompt: prompt, n: numImages, size: size, user: user)
@@ -250,6 +250,7 @@ private:
     }
 
 public:
+
     /// Send a Completion to the OpenAI API
     /// - Parameters:
     ///   - prompt: The Text Prompt
@@ -259,25 +260,29 @@ public:
     /// - Returns: Returns an OpenAI Data Model
     //@available(swift 5.5)
     //@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, *)
-    std::future<OpenAI<TextResult>> sendCompletion( std::string prompt, 
+    std::future<OpenAI<TextResult>> sendCompletion( std::string prompt,
                                                     OpenAIModelType model = OpenAIModelType::gpt3_davinci,
                                                     uint32_t maxTokens = 16,
                                                     double temperature = 1.0)  {
-        auto asyncFunction = [this](std::string prompt, OpenAIModelType model, uint32_t maxTokens, double temperature) -> OpenAI<TextResult> {           
-            auto completionHandler = [this](std::optional<OpenAI<TextResult>> result, std::optional<OpenAIError> error){
+        auto asyncFunction = [this](std::string prompt, OpenAIModelType model, uint32_t maxTokens, double temperature) -> OpenAI<TextResult> {
+            std::promise<OpenAI<TextResult>> resultValue;
+            auto future = resultValue.get_future();
+            auto completionHandler = [&](std::optional<OpenAI<TextResult>> result, std::optional<OpenAIError> error) {
                 if (error.has_value()) {
                     throw error.value();
                 }
-                return result.value();
+                resultValue.set_value(result.value());
             };
-            sendCompletion(prompt, model, maxTokens, temperature, completionHandler);
+
+            sendCompletion(prompt, completionHandler, model, maxTokens, temperature);
+            return future.get();
         };
         
         return std::async(std::launch::async, asyncFunction, prompt, model, maxTokens, temperature);
-                    
     }
     
     /// Send a Edit request to the OpenAI API
+    ///
     /// - Parameters:
     ///   - instruction: The Instruction For Example: "Fix the spelling mistake"
     ///   - model: The Model to use, the only support model is `text-davinci-edit-001`
@@ -287,14 +292,19 @@ public:
     // @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, *)
     std::future<OpenAI<TextResult>> sendEdits(std::string instruction, OpenAIModelType model = OpenAIModelType::feature_davinci, std::string input = "") {
         
-        auto asyncFunction = [this](std::string instruction, OpenAIModelType model, std::string input) -> OpenAI<TextResult> {           
-            auto completionHandler = [this](std::optional<OpenAI<TextResult>> result, std::optional<OpenAIError> error){
+        auto asyncFunction = [this](std::string instruction, OpenAIModelType model, std::string input) -> OpenAI<TextResult> {
+            std::promise<OpenAI<TextResult>> resultValue;
+            auto future = resultValue.get_future();
+            auto completionHandler = [&](std::optional<OpenAI<TextResult>> result, std::optional<OpenAIError> error){
                 if (error.has_value()) {
                     throw error.value();
                 }
-                return result.value();
+                resultValue.set_value(result.value());
             };
-            sendEdits(instruction, model, input, completionHandler);
+
+            sendEdits(instruction, completionHandler, model, input);
+
+            return future.get();
         };
         
         return std::async(std::launch::async, asyncFunction, instruction, model, input);
@@ -324,43 +334,48 @@ public:
                         std::optional<double> topProbabilityMass = 0.0,
                         std::optional<uint32_t> choices = 1,
                         std::optional<std::vector<std::string>*> stop = nullptr,
-                        std::optional<uint32_t> maxTokens = 0,
+                        std::optional<uint32_t> maxTokens = 100,
                         std::optional<double> presencePenalty = 0.0,
                         std::optional<double> frequencyPenalty = 0.0,
                         std::optional<std::unordered_map<int, double>*> logitBias = nullptr) {
-        auto asyncFunction = [this](std::vector<ChatMessage> messages, 
-                                    OpenAIModelType model, 
-                                    std::optional<std::string> user, 
-                                    std::optional<double> temperature, 
-                                    std::optional<double> topProbabilityMass, 
-                                    std::optional<uint32_t> choices, 
-                                    std::optional<std::vector<std::string>*> stop, 
-                                    std::optional<uint32_t> maxTokens, 
-                                    std::optional<double> presencePenalty, 
-                                    std::optional<double> frequencyPenalty, 
-                                    std::optional<std::unordered_map<int, double>*> logitBias) -> OpenAI<MessageResult> {           
-            auto completionHandler = [this](std::optional<OpenAI<MessageResult>> result, std::optional<OpenAIError> error){
+        auto asyncFunction = [&](std::vector<ChatMessage> messages,
+                                    OpenAIModelType model,
+                                    std::optional<std::string> user,
+                                    std::optional<double> temperature,
+                                    std::optional<double> topProbabilityMass,
+                                    std::optional<uint32_t> choices,
+                                    std::optional<std::vector<std::string>*> stop,
+                                    std::optional<uint32_t> maxTokens,
+                                    std::optional<double> presencePenalty,
+                                    std::optional<double> frequencyPenalty,
+                                    std::optional<std::unordered_map<int, double>*> logitBias){
+            std::promise<OpenAI<MessageResult>> resultValue;
+            auto future = resultValue.get_future();
+            auto completionHandler = [&](std::optional<OpenAI<MessageResult>> result, std::optional<OpenAIError> error){
                 if (error.has_value()) {
                     throw error.value();
                 }
-                return result.value();
+                resultValue.set_value(result.value());
             };
-            sendChat(messages, model, user, temperature, topProbabilityMass, choices, stop, maxTokens, presencePenalty, frequencyPenalty, logitBias, completionHandler);
+            sendChat(messages, completionHandler, model, user, temperature, topProbabilityMass, choices, stop, maxTokens, presencePenalty, frequencyPenalty, logitBias);
+
+            return future.get();
         };
-        
-        return std::async(std::launch::async, asyncFunction, 
-                            messages, 
-                            model, 
-                            user, 
-                            temperature, 
-                            topProbabilityMass, 
-                            choices, 
-                            stop, 
-                            maxTokens, 
-                            presencePenalty, 
-                            frequencyPenalty, 
+
+        return std::async(std::launch::async, asyncFunction,
+                            messages,
+                            model,
+                            user,
+                            temperature,
+                            topProbabilityMass,
+                            choices,
+                            stop,
+                            maxTokens,
+                            presencePenalty,
+                            frequencyPenalty,
                             logitBias);
     }
+
 
     /// Send a Image generation request to the OpenAI API
     /// - Parameters:
@@ -371,15 +386,21 @@ public:
     /// - Returns: Returns an OpenAI Data Model
     // @available(swift 5.5)
     // @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, *)
-    std::future<OpenAI<UrlResult>> sendImages(std::string prompt, uint32_t numImages, ImageSize size = ImageSize::size1024, std::optional<std::string> user = nullptr) {
-        auto asyncFunction = [this](std::string prompt, uint32_t numImages, ImageSize size, std::optional<std::string> user) -> OpenAI<UrlResult> {           
-            auto completionHandler = [this](std::optional<OpenAI<UrlResult>> result, std::optional<OpenAIError> error){
+    std::future<OpenAI<UrlResult>> sendImages(std::string prompt,
+                                              uint32_t numImages,
+                                              ImageSize::Size size = ImageSize::size1024,
+                                              std::optional<std::string> user = nullptr) {
+        auto asyncFunction = [this](std::string prompt, uint32_t numImages, ImageSize::Size size, std::optional<std::string> user) -> OpenAI<UrlResult> {
+            std::promise<OpenAI<UrlResult>> resultValue;
+            auto future = resultValue.get_future();
+            auto completionHandler = [&](std::optional<OpenAI<UrlResult>> result, std::optional<OpenAIError> error){
                 if (error.has_value()) {
                     throw error.value();
                 }
-                return result.value();
+                resultValue.set_value(result.value());
             };
-            sendImages(prompt, numImages, size, user, completionHandler);
+            sendImages(prompt, completionHandler, numImages, size, user);
+            return future.get();
         };
         
         return std::async(std::launch::async, asyncFunction, prompt, numImages, size, user);

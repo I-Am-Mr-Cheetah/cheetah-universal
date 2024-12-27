@@ -1,22 +1,30 @@
 #pragma once
 
 #include <string>
-#include <OpenAIExecutor.h>
+#include <ModelInput.h>
 
 class PromptGenerator {
+public:
 
-    std::string shorthandInstruction = 
-"Use bullet points and write in shorthand. For example, \"O(n log n) due to sorting\" is preferred to \"The time complexity of the implementation is O(n log n) due to the sorting.\"";
+    PromptGenerator(){}
+    PromptGenerator(const PromptGenerator& other){}
+    PromptGenerator(const PromptGenerator&& other){}
 
-    std::string domain = "software engineering";
-    
-    std::string systemMessage() {
-        return "You are a " + domain + " expert.";
+    static std::string shorthandInstruction() {
+        return "Use bullet points and write in shorthand. For example, \"O(n log n) due to sorting\" is preferred to \"The time complexity of the implementation is O(n log n) due to the sorting.\"";
+    }
+
+    static std::string domain(){
+        return "software engineering";
     }
     
-    virtual std::optional<ModelInput> extractQuestion(std::string transcript) {
-        auto prompt = 
-"Extract the last problem or question posed by the interviewer during a " + domain + " interview. State it as an instruction. If the question is about something the candidate did, restate it in a general way.\n\
+    static std::string systemMessage() {
+        return "You are a " + domain() + " expert.";
+    }
+    
+    virtual ModelInput extractQuestion(std::string transcript) {
+        auto prompt =
+"Extract the last problem or question posed by the interviewer during a " + domain() + " interview. State it as an instruction. If the question is about something the candidate did, restate it in a general way.\n\
 \n\
 [transcript begins]\n\
 If you want to improve the query performance of multiple columns or a group of columns in a given table. Cool. And is it considered a cluster index or no cluster index? definitely be a non-clustered index. For sure. All right, great. So next question. What's the difference between \"where\" and \"having\"? Oh, that's an interesting one.\n\
@@ -46,12 +54,12 @@ Answer in code: Yes\n\
 [transcript ends]\n\
 Is context needed here:\n\
 ";
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
     
-    ModelInput answerQuestion(std::string question) {
-        auto prompt = 
-"You are a " + domain + " expert. " + shorthandInstruction + 
+    ModelInput answerPromptQuestion(std::string question) {
+        auto prompt =
+"You are a " + domain() + " expert. " + shorthandInstruction() +
 "\n\
 Example 1:\n\
 Question: Should I use \"where\" or \"having\" to find employee first names that appear more than 250 times?\n\
@@ -75,12 +83,12 @@ Final answer:\n\
 \n\
 Question: " + question;
         
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
     
-    ModelInput answerQuestion(std::string question, std::string previousAnswer ) {
-        auto prompt = 
-"You are a " + domain + " expert. Refine the partial answer. " + shorthandInstruction +
+    ModelInput answerPreviousQuestion(std::string question, std::string previousAnswer ) {
+        auto prompt =
+"You are a " + domain() + " expert. Refine the partial answer. " + shorthandInstruction() +
 "\n\
 Example 1:\n\
 Question: Should I use \"where\" or \"having\" to find employee first names that appear more than 250 times?\n\
@@ -111,19 +119,19 @@ Question: " + question +
 "\n\
 Partial answer:\n" + previousAnswer;
         
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
     
-    ModelInput answerQuestion(std::string question, std::string highlightedAnswer) {
+    ModelInput answerHighlightedQuestion(std::string question, std::string highlightedAnswer) {
         auto prompt = 
 "Question: " + question + "\n\
 \n\
 You previously provided this answer, and I have highlighted part of it:\n\
 " + highlightedAnswer + "\n\
 \n\
-Explain the highlighted part of your previous answer in much greater depth. " + shorthandInstruction;
+Explain the highlighted part of your previous answer in much greater depth. " + shorthandInstruction();
         
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
     
     ModelInput writeCode(std::string task) {
@@ -132,7 +140,7 @@ Explain the highlighted part of your previous answer in much greater depth. " + 
 \n\
 Start with a comment outlining opportunities for optimization and potential pitfalls. Assume only standard libraries are available, unless specified. Don't explain, just give me the code.\n\
 ";        
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
      
     ModelInput analyzeBrowserCode(std::string code, std::string logs, std::string task = "") {
@@ -152,8 +160,8 @@ Code:\n\
 Output:\n\
 " + logs + "\n\
 \n\
-If the prompt is irrelevant, you may disregard it. You may suggest edits to the existing code. If appropriate, include a brief discussion of complexity." + shorthandInstruction + "\n\
+                      If the prompt is irrelevant, you may disregard it. You may suggest edits to the existing code. If appropriate, include a brief discussion of complexity." + shorthandInstruction() + "\n\
 ";      
-        return {systemMessage(), prompt, "chatgpt", ""};
+        return ModelInput(systemMessage(), prompt, OpenAIModelType::chat_chatgpt, "");
     }
 };

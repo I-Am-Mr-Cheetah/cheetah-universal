@@ -14,27 +14,31 @@
 #include <cstdint>
 #include <stdexcept>
 
+namespace ImageSize{
+    enum Size {
+        size1024,
+        size512,
+        size256,
+    };
+}
+
 struct ImageGeneration {
     std::string prompt;
     uint32_t n;
-    ImageSize size;
+    ImageSize::Size size;
     std::optional<std::string> user;
 };
 
-enum ImageSize {
-    size1024,
-    size512,
-    size256,
-};
+
 
 namespace ImageSizeUtils {
-    const char* getSize(ImageSize size) {
+    const char* getSize(ImageSize::Size size) {
         switch (size) {
-            case ImageSize::size1024:
+            case ImageSize::Size::size1024:
                 return "1024x1024";
-            case ImageSize::size512:
+            case ImageSize::Size::size512:
                 return "512x512";
-            case ImageSize::size256:
+            case ImageSize::Size::size256:
                 return "256x256";
             default:
                 throw std::invalid_argument("Invalid Image Size");
